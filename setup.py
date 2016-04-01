@@ -5,7 +5,7 @@ except ImportError:
 
 setup(
 	name='rickpy',
-	version='0.1.1',
+	version='0.1.2',
 	author='Rick Gerkin',
 	author_email='rgerkin@asu.edu',
 	packages=['rickpy',],

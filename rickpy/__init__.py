@@ -1,4 +1,4 @@
-import sys, time
+import os, sys, time, warnings
 try:
     from IPython.display import clear_output,Image,HTML
     import nbformat
@@ -104,3 +104,77 @@ def get_table(nb_name, n_cell, n_output=0):
     outputs = get_outputs(nb_name,n_cell)
     html = outputs[n_output]['data']['text/html']
     return HTML(html)
+
+def refresh_class(cls,modules):
+    """Updates one class recursively so that it and all of its bases classes 
+    match the current version of the class."""
+
+    bases = cls.__bases__
+    if bases is (object,):
+        return 0
+    bases = list(bases)
+    changed = False
+    for i,base in enumerate(bases):
+        if base is object:
+            continue
+        mod = base.__module__
+        if (modules is None) or any([x in mod for x in modules]):
+            try:
+                base_name = str(base)[8:-2]
+                module_name = base_name
+                while True:
+                    try:
+                        module = __import__(module_name)
+                    except ImportError as e:
+                        if '.' in module_name:
+                            module_name = '.'.join(module_name.split('.')[:-1])
+                        else:
+                            warnings.warn(str(e))
+                            break
+                    else:
+                        base_name = base_name.split('.')
+                        full_class = module
+                        for j,part in enumerate(base_name):
+                            if j>0:
+                                full_class = getattr(full_class,part)
+                        bases[i] = full_class
+                        changed = True
+                        break
+            except Exception as e:
+                warnings.warn(str(e))
+                #raise(e)
+        refresh_class(base,modules)
+    if changed:
+        try:
+            cls.__bases__ = tuple(bases)
+        except TypeError as e:
+            raise(e)
+            
+def refresh_objects(objects,modules=None):
+    """Updates objects recursively so that they and all of their members
+    have classes that match the current version of those classes.
+    Use with locals() to update everything in a notebook."""
+    
+    for name,obj in objects.copy().items():
+        if type(obj) is list:
+            for obj_ in obj:
+                refresh_class(obj_.__class__,modules)
+        elif type(obj) is dict:
+            for obj_ in obj.values():
+                refresh_class(obj_.__class__,modules)
+        else:
+            refresh_class(obj.__class__,modules)  
+
+def use_dev_packages(dev_packages):
+    """Prepends items in dev_packages to sys.path, and assumes there are in 
+    the user's HOME/Dropbox/dev directory. 
+    Format for dev_packages items is repo/package.
+    """
+
+    HOME = os.path.expanduser('~')
+    sp = os.path.join(HOME,'Dropbox/python3/lib/python3.4/site-packages')
+    if os.path.exists(sp) and sp not in sys.path:
+        sys.path.append(sp)  
+    for i,package in enumerate(dev_packages):
+        if package.split('/')[-1] not in sys.path[len(dev_packages)-i]:
+            sys.path.insert(1,os.path.join(HOME,'Dropbox/dev/',package))   
