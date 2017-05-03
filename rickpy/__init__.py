@@ -1,4 +1,5 @@
-import os, sys, time, warnings
+import os, sys, time, warnings, shutil
+
 try:
     from IPython.display import clear_output,Image,HTML
     import nbformat
@@ -7,9 +8,12 @@ except ImportError:
     have_ipython = False
 
 THEN = None
+
+
 def tic():
     global THEN
     THEN = datetime.now()
+
 
 def toc(activity='Something'):
     now = datetime.now()
@@ -17,67 +21,65 @@ def toc(activity='Something'):
     seconds = delta.days*24*3600 + delta.seconds + delta.microseconds/1e6
     print('%s took %.3g seconds' % (activity,seconds))
 
-def prog(num,denom):
-    fract = float(num)/denom
-    hyphens = int(round(50*fract))
-    spaces = int(round(50*(1-fract)))
-    sys.stdout.write('\r%.2f%% [%s%s]' % (100*fract,'-'*hyphens,' '*spaces))
-    sys.stdout.flush()     
 
 class ProgressBar:
     """
     An animated progress bar used like:
-    p = ProgressBar(1000)
-    for i in range(1001):
+    n = 1000
+    p = ProgressBar(n)
+    for i in range(n):
         p.animate(i)
+        # Or using optional message:
+        # p.animate(i,"{k} out of {n} complete")
+        time.sleep(1) # Replaced by your code
+    p.animate(n)
     """
     
-    def __init__(self, iterations):
-        self.iterations = iterations
-        self.prog_bar = '[]'
-        self.fill_char = '*'
-        self.width = 40
-        self.__update_amount(0)
-        if have_ipython:
-            self.animate = self.animate_ipython
-        else:
-            self.animate = self.animate_noipython
+    def __init__(self, n, progress='{k} out of {n} complete', status=''):
+        self.n = n
+        self.progress = progress
+        self.status = status
+        self.char = '-'
+        self.width = 50
+        self.last_length = 0
+        self._update(0, '')
 
-    def animate_ipython(self, iter):
-        print('\r', self)
+    def animate(self, k, status=None):
+        if status is None:
+            status = self.status
+        sys.stdout.write('\r%s' % (' '*self.last_length))
+        self._update(k, status)
+        sys.stdout.write('\r%s' % self.text)
         sys.stdout.flush()
-        self.update_iteration(iter + 1)
-
-    def update_iteration(self, elapsed_iter):
-        self.__update_amount((elapsed_iter / float(self.iterations)) * 100.0)
-        self.prog_bar += '  %d of %s complete' % (elapsed_iter, self.iterations)
-
-    def __update_amount(self, new_amount):
-        percent_done = int(round((new_amount / 100.0) * 100.0))
-        all_full = self.width - 2
-        num_hashes = int(round((percent_done / 100.0) * all_full))
-        self.prog_bar = '[' + self.fill_char * num_hashes + ' ' * (all_full - num_hashes) + ']'
-        pct_place = (len(self.prog_bar) // 2) - len(str(percent_done))
-        pct_string = '%d%%' % percent_done
-        self.prog_bar = self.prog_bar[0:pct_place] + \
-            (pct_string + self.prog_bar[pct_place + len(pct_string):])
-
-    def __str__(self):
-        return str(self.prog_bar)
+        
+    def _update(self, k, status):
+        percent = int(k*100/self.n)
+        n_chars = int(round((percent / 100.0) * (self.width-2)))
+        self.text = "[%s%s]" % (self.char*n_chars,' '*(self.width-2-n_chars))
+        pct = ('%d%%' % percent)
+        self.text = self.text[:int(self.width/2)-1] + pct + self.text[int(self.width/2)-1+len(pct):]
+        self.text += ' '+self.progress.format(k=k,n=self.n)
+        if status:
+            self.text += ' (%s)' % status
+        self.last_length = len(self.text)
 
 ENCRYPTION_PREFIX = '%%%%%'
 ENCRYPTION_SHIFT = 37
     
+
 # An ovaltine-esque code.  
 def encrypt(x,n=ENCRYPTION_SHIFT):
     return ENCRYPTION_PREFIX+base64.b64encode(''.join([chr((ord(i)+n) % 256) for i in x]))
+
 
 # An ovaltine-esque code.  
 def decrypt(x,n=ENCRYPTION_SHIFT):
     return ''.join([chr((ord(i)-n+256) % 256) for i in base64.b64decode(x[len(ENCRYPTION_PREFIX):])])
     
+
 def is_encrypted(x):
     return x[0:len(ENCRYPTION_PREFIX)] == ENCRYPTION_PREFIX
+
 
 def get_outputs(nb_name, n_cell):
     """Get output cells from an IPython notebook on disk"""
@@ -91,6 +93,7 @@ def get_outputs(nb_name, n_cell):
             outputs += c['outputs']
     return outputs
 
+
 def get_fig(nb_name, n_cell, n_output=0):
     """Get output figure from an IPython notebook on disk"""
 
@@ -98,12 +101,14 @@ def get_fig(nb_name, n_cell, n_output=0):
     base64 = outputs[n_output]['data']['image/png']
     return Image(data=base64, format='png')
 
+
 def get_table(nb_name, n_cell, n_output=0):
     """Get output table (or any html) from an IPython notebook on disk"""
 
     outputs = get_outputs(nb_name,n_cell)
     html = outputs[n_output]['data']['text/html']
     return HTML(html)
+
 
 def refresh_class(cls,modules):
     """Updates one class recursively so that it and all of its bases classes 
@@ -132,6 +137,13 @@ def refresh_class(cls,modules):
                             warnings.warn(str(e))
                             break
                     else:
+                        skip_list = ['numpy'] # Modules to never try to refresh.  
+                        skip_flag = False
+                        for skip in skip_list:
+                            if skip in base_name:  
+                                skip_flag = True
+                        if skip_flag:
+                            break
                         base_name = base_name.split('.')
                         full_class = module
                         for j,part in enumerate(base_name):
@@ -150,6 +162,7 @@ def refresh_class(cls,modules):
         except TypeError as e:
             raise(e)
             
+
 def refresh_objects(objects,modules=None):
     """Updates objects recursively so that they and all of their members
     have classes that match the current version of those classes.
@@ -163,7 +176,12 @@ def refresh_objects(objects,modules=None):
             for obj_ in obj.values():
                 refresh_class(obj_.__class__,modules)
         else:
-            refresh_class(obj.__class__,modules)  
+            refresh_class(obj.__class__,modules) # Refresh the class itself
+            #try:
+            #    obj.__class__ = eval(str(obj.__class__)[8:-2]) # Refresh the object
+            #except TypeError:
+            #    pass
+
 
 def use_dev_packages(dev_packages):
     """Prepends items in dev_packages to sys.path, and assumes there are in 
